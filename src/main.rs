@@ -6,11 +6,18 @@ use std::env;
 use std::path::PathBuf;
 use std::process::{self, Command};
 
-#[allow(clippy::ignored_unit_patterns)]
-fn show_help() {}
+use anstream::println;
 
 #[allow(clippy::ignored_unit_patterns)]
-fn show_version() {}
+fn show_help() {
+    println!("{}", help_message());
+}
+
+#[allow(clippy::ignored_unit_patterns)]
+fn show_version() {
+    let version_info = rustc_tools_util::get_version_info!();
+    println!("{version_info}");
+}
 
 pub fn main() {
     // Check for version and help flags even when invoked as 'cargo-clippy'
@@ -27,6 +34,7 @@ pub fn main() {
     if let Some(pos) = env::args().position(|a| a == "--explain") {
         if let Some(mut lint) = env::args().nth(pos + 1) {
             lint.make_ascii_lowercase();
+            todo!()
         } else {
             show_help();
         }
@@ -101,6 +109,8 @@ impl ClippyCmd {
             .iter()
             .fold(String::new(), |s, arg| s + arg + "__CLIPPY_HACKERY__");
 
+        // Currently, `CLIPPY_TERMINAL_WIDTH` is used only to format "unknown field" error messages.
+
         cmd.env("RUSTC_WORKSPACE_WRAPPER", Self::path())
             .env("CLIPPY_ARGS", clippy_args)
             .arg(self.cargo_subcommand)
@@ -128,5 +138,83 @@ where
         Ok(())
     } else {
         Err(exit_status.code().unwrap_or(-1))
+    }
+}
+
+#[must_use]
+pub fn help_message() -> &'static str {
+    color_print::cstr!(
+"Checks a package to catch common mistakes and improve your Rust code.
+
+<green,bold>Usage</>:
+    <cyan,bold>cargo clippy</> <cyan>[OPTIONS] [--] [<<ARGS>>...]</>
+
+<green,bold>Common options:</>
+    <cyan,bold>--no-deps</>                Run Clippy only on the given crate, without linting the dependencies
+    <cyan,bold>--fix</>                    Automatically apply lint suggestions. This flag implies <cyan>--no-deps</> and <cyan>--all-targets</>
+    <cyan,bold>-h</>, <cyan,bold>--help</>               Print this message
+    <cyan,bold>-V</>, <cyan,bold>--version</>            Print version info and exit
+    <cyan,bold>--explain [LINT]</>         Print the documentation for a given lint
+
+See all options with <cyan,bold>cargo check --help</>.
+
+<green,bold>Allowing / Denying lints</>
+
+To allow or deny a lint from the command line you can use <cyan,bold>cargo clippy --</> with:
+
+    <cyan,bold>-W</> / <cyan,bold>--warn</> <cyan>[LINT]</>       Set lint warnings
+    <cyan,bold>-A</> / <cyan,bold>--allow</> <cyan>[LINT]</>      Set lint allowed
+    <cyan,bold>-D</> / <cyan,bold>--deny</> <cyan>[LINT]</>       Set lint denied
+    <cyan,bold>-F</> / <cyan,bold>--forbid</> <cyan>[LINT]</>     Set lint forbidden
+
+You can use tool lints to allow or deny lints from your code, e.g.:
+
+    <yellow,bold>#[allow(clippy::needless_lifetimes)]</>
+"
+    )
+}
+#[cfg(test)]
+mod tests {
+    use super::ClippyCmd;
+
+    #[test]
+    fn fix() {
+        let args = "cargo clippy --fix"
+            .split_whitespace()
+            .map(ToString::to_string);
+        let cmd = ClippyCmd::new(args);
+        assert_eq!("fix", cmd.cargo_subcommand);
+        assert!(!cmd.args.iter().any(|arg| arg.ends_with("unstable-options")));
+    }
+
+    #[test]
+    fn fix_implies_no_deps() {
+        let args = "cargo clippy --fix"
+            .split_whitespace()
+            .map(ToString::to_string);
+        let cmd = ClippyCmd::new(args);
+        assert!(cmd.clippy_args.iter().any(|arg| arg == "--no-deps"));
+    }
+
+    #[test]
+    fn no_deps_not_duplicated_with_fix() {
+        let args = "cargo clippy --fix -- --no-deps"
+            .split_whitespace()
+            .map(ToString::to_string);
+        let cmd = ClippyCmd::new(args);
+        assert_eq!(
+            cmd.clippy_args
+                .iter()
+                .filter(|arg| *arg == "--no-deps")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn check() {
+        let args = "cargo clippy".split_whitespace().map(ToString::to_string);
+        let cmd = ClippyCmd::new(args);
+        assert_eq!("check", cmd.cargo_subcommand);
     }
 }
